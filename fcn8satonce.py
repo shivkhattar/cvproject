@@ -8,38 +8,14 @@ import os.path as osp
 import torch
 import yaml
 import voc.voc as voc
-import models.modelfcn8s as models
-import models.modelfcn16s as models16s
+import models.modelfcn8s as fcn8s
+import models.modelvgg as vgg
 import train
 
+from .fcn8s import get_parameters
+
+
 here = osp.dirname(osp.abspath(__file__))
-
-
-def get_parameters(model, bias=False):
-    import torch.nn as nn
-    modules_skipped = (
-        nn.ReLU,
-        nn.MaxPool2d,
-        nn.Dropout2d,
-        nn.Sequential,
-        #torchfcn.models.FCN32s,
-        models16s.FCN16s,
-        models.FCN8s,
-    )
-    for m in model.modules():
-        if isinstance(m, nn.Conv2d):
-            if bias:
-                yield m.bias
-            else:
-                yield m.weight
-        elif isinstance(m, nn.ConvTranspose2d):
-            # weight is frozen because it is just a bilinear upsampling
-            if bias:
-                assert m.bias is None
-        elif isinstance(m, modules_skipped):
-            continue
-        else:
-            raise ValueError('Unexpected module: %s' % str(m))
 
 
 def main():
@@ -54,7 +30,7 @@ def main():
         '--max-iteration', type=int, default=100000, help='max iteration'
     )
     parser.add_argument(
-        '--lr', type=float, default=1.0e-14, help='learning rate',
+        '--lr', type=float, default=1.0e-10, help='learning rate',
     )
     parser.add_argument(
         '--weight-decay', type=float, default=0.0005, help='weight decay',
@@ -62,14 +38,9 @@ def main():
     parser.add_argument(
         '--momentum', type=float, default=0.99, help='momentum',
     )
-    parser.add_argument(
-        '--pretrained-model',
-        default=models16s.FCN16s.download(),
-        help='pretrained model of FCN16s',
-    )
     args = parser.parse_args()
 
-    args.model = 'FCN8s'
+    args.model = 'FCN8sAtOnce'
 
     now = datetime.datetime.now()
     args.out = osp.join(here, 'logs', now.strftime('%Y%m%d_%H%M%S.%f'))
@@ -86,7 +57,7 @@ def main():
         torch.cuda.manual_seed(1337)
 
     # 1. dataset
-    root = osp.expanduser('scratch/gd1302')
+    root = osp.expanduser('~/scratch/gd1302')
     kwargs = {'num_workers': 4, 'pin_memory': True} if cuda else {}
     train_loader = torch.utils.data.DataLoader(
         voc.SBDClassSeg(root, split='train', transform=True),
@@ -97,7 +68,7 @@ def main():
         batch_size=1, shuffle=False, **kwargs)
 
     # 2. model
-    model = models.FCN8s(n_class=21)
+    model = fcn8s.FCN8sAtOnce(n_class=21)
     start_epoch = 0
     start_iteration = 0
     if args.resume:
@@ -106,13 +77,8 @@ def main():
         start_epoch = checkpoint['epoch']
         start_iteration = checkpoint['iteration']
     else:
-        fcn16s = models16s.FCN16s()
-        state_dict = torch.load(args.pretrained_model)
-        try:
-            fcn16s.load_state_dict(state_dict)
-        except RuntimeError:
-            fcn16s.load_state_dict(state_dict['model_state_dict'])
-        model.copy_params_from_fcn16s(fcn16s)
+        vgg16 = vgg.VGG16(pretrained=False)
+        model.copy_params_from_vgg16(vgg16)
     if cuda:
         model = model.cuda()
 
