@@ -11,7 +11,6 @@ from torch.utils import data
 
 
 class VOCClassSegBase(data.Dataset):
-
     class_names = np.array([
         'background',
         'aeroplane',
@@ -101,10 +100,8 @@ class VOC2011ClassSeg(VOCClassSegBase):
     def __init__(self, root, split='train', transform=False):
         super(VOC2011ClassSeg, self).__init__(
             root, split=split, transform=transform)
-        pkg_root = osp.join(osp.dirname(osp.realpath(__file__)), '..')
         imgsets_file = osp.join(
-            pkg_root, 'ext/fcn.berkeleyvision.org',
-            'voc/pascal/seg11valid.txt')
+            self.root, 'VOC/VOCdevkit/VOC2012/ImageSets/Segmentation')
         dataset_dir = osp.join(self.root, 'VOC/VOCdevkit/VOC2012')
         for did in open(imgsets_file):
             did = did.strip()
@@ -115,15 +112,12 @@ class VOC2011ClassSeg(VOCClassSegBase):
 
 class VOC2012ClassSeg(VOCClassSegBase):
 
-    url = 'http://host.robots.ox.ac.uk/pascal/VOC/voc2012/VOCtrainval_11-May-2012.tar'  # NOQA
-
     def __init__(self, root, split='train', transform=False):
         super(VOC2012ClassSeg, self).__init__(
             root, split=split, transform=transform)
 
 
 class SBDClassSeg(VOCClassSegBase):
-
     # XXX: It must be renamed to benchmark.tar to be extracted.
     url = 'http://www.eecs.berkeley.edu/Research/Projects/CS/vision/grouping/semantic_contours/benchmark.tgz'  # NOQA
 

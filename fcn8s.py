@@ -8,7 +8,7 @@ import os.path as osp
 import torch
 import yaml
 import voc.voc as voc
-import models.fcn8s as models
+import models.modelfcn8s as models
 import train
 import shlex
 import subprocess
@@ -96,7 +96,6 @@ def main():
         torch.cuda.manual_seed(1337)
 
     # 1. dataset
-
     root = osp.expanduser('~/data/datasets')
     kwargs = {'num_workers': 4, 'pin_memory': True} if cuda else {}
     train_loader = torch.utils.data.DataLoader(
@@ -108,7 +107,6 @@ def main():
         batch_size=1, shuffle=False, **kwargs)
 
     # 2. model
-
     model = models.FCN8s(n_class=21)
     start_epoch = 0
     start_iteration = 0
@@ -129,7 +127,6 @@ def main():
         model = model.cuda()
 
     # 3. optimizer
-
     optim = torch.optim.SGD(
         [
             {'params': get_parameters(model, bias=False)},
