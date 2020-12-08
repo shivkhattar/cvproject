@@ -10,6 +10,7 @@ import yaml
 import voc.voc as voc
 import models.modelfcn8s as models
 import models.modelfcn16s as models16s
+import models.modelfcn32s as model32s
 import train
 
 here = osp.dirname(osp.abspath(__file__))
@@ -22,7 +23,7 @@ def get_parameters(model, bias=False):
         nn.MaxPool2d,
         nn.Dropout2d,
         nn.Sequential,
-        #torchfcn.models.FCN32s,
+        model32s.FCN32s,
         models16s.FCN16s,
         models.FCN8s,
     )

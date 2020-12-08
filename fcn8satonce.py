@@ -12,7 +12,7 @@ import models.modelfcn8s as fcn8s
 import models.modelvgg as vgg
 import train
 
-from .fcn8s import get_parameters
+from fcn8s import get_parameters
 
 
 here = osp.dirname(osp.abspath(__file__))
@@ -57,7 +57,7 @@ def main():
         torch.cuda.manual_seed(1337)
 
     # 1. dataset
-    root = osp.expanduser('~/scratch/gd1302')
+    root = osp.expanduser('/scratch/gd1302')
     kwargs = {'num_workers': 4, 'pin_memory': True} if cuda else {}
     train_loader = torch.utils.data.DataLoader(
         voc.SBDClassSeg(root, split='train', transform=True),
