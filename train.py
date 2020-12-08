@@ -15,7 +15,6 @@ import tqdm
 import util
 
 
-
 def cross_entropy2d(input, target, weight=None, size_average=True):
     # input: (n, c, h, w), target: (n, h, w)
     n, c, h, w = input.size()
@@ -139,8 +138,8 @@ class Trainer(object):
 
         with open(osp.join(self.out, 'log.csv'), 'a') as f:
             elapsed_time = (
-                datetime.datetime.now(pytz.timezone('Asia/Tokyo')) -
-                self.timestamp_start).total_seconds()
+                    datetime.datetime.now(pytz.timezone('Asia/Tokyo')) -
+                    self.timestamp_start).total_seconds()
             log = [self.epoch, self.iteration] + [''] * 5 + \
                   [val_loss] + list(metrics) + [elapsed_time]
             log = map(str, log)
@@ -209,10 +208,10 @@ class Trainer(object):
 
             with open(osp.join(self.out, 'log.csv'), 'a') as f:
                 elapsed_time = (
-                    datetime.datetime.now(pytz.timezone('Asia/Tokyo')) -
-                    self.timestamp_start).total_seconds()
+                        datetime.datetime.now(pytz.timezone('Asia/Tokyo')) -
+                        self.timestamp_start).total_seconds()
                 log = [self.epoch, self.iteration] + [loss_data] + \
-                    metrics.tolist() + [''] * 5 + [elapsed_time]
+                      metrics.tolist() + [''] * 5 + [elapsed_time]
                 log = map(str, log)
                 f.write(','.join(log) + '\n')
 
