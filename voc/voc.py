@@ -104,7 +104,7 @@ class VOC2011ClassSeg(VOCClassSegBase):
         pkg_root = osp.join(osp.dirname(osp.realpath(__file__)), '..')
         imgsets_file = osp.join(
             pkg_root, 'ext/fcn.berkeleyvision.org',
-            'data/pascal/seg11valid.txt')
+            'voc/pascal/seg11valid.txt')
         dataset_dir = osp.join(self.root, 'VOC/VOCdevkit/VOC2012')
         for did in open(imgsets_file):
             did = did.strip()

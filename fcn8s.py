@@ -7,7 +7,7 @@ import os.path as osp
 
 import torch
 import yaml
-import data.voc as voc
+import voc.voc as voc
 import models.fcn8s as models
 import train
 import shlex

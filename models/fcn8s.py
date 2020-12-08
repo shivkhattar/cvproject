@@ -22,11 +22,11 @@ def get_upsampling_weight(in_channels, out_channels, kernel_size):
 
 class FCN8s(nn.Module):
     # pretrained_model = \
-    #     osp.expanduser('~/data/models/pytorch/fcn8s_from_caffe.pth')
+    #     osp.expanduser('~/voc/models/pytorch/fcn8s_from_caffe.pth')
 
     # @classmethod
     # def download(cls):
-    #     return fcn.data.cached_download(
+    #     return fcn.voc.cached_download(
     #         url='http://drive.google.com/uc?id=0B9P1L--7Wd2vT0FtdThWREhjNkU',
     #         path=cls.pretrained_model,
     #         md5='dbd9bbb3829a3184913bccc74373afbb',
@@ -184,11 +184,11 @@ class FCN8s(nn.Module):
 
 class FCN8sAtOnce(FCN8s):
     # pretrained_model = \
-    #     osp.expanduser('~/data/models/pytorch/fcn8s-atonce_from_caffe.pth')
+    #     osp.expanduser('~/voc/models/pytorch/fcn8s-atonce_from_caffe.pth')
 
     # @classmethod
     # def download(cls):
-    #     return fcn.data.cached_download(
+    #     return fcn.voc.cached_download(
     #         url='http://drive.google.com/uc?id=0B9P1L--7Wd2vblE1VUIxV1o2d2M',
     #         path=cls.pretrained_model,
     #         md5='bfed4437e941fef58932891217fe6464',
