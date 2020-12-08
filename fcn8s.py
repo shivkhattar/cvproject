@@ -10,18 +10,8 @@ import yaml
 import voc.voc as voc
 import models.modelfcn8s as models
 import train
-import shlex
-import subprocess
 
 here = osp.dirname(osp.abspath(__file__))
-
-
-def git_hash():
-    cmd = 'git log -n 1 --pretty="%h"'
-    ret = subprocess.check_output(shlex.split(cmd)).strip()
-    if isinstance(ret, bytes):
-        ret = ret.decode()
-    return ret
 
 
 def get_parameters(model, bias=False):
@@ -79,7 +69,6 @@ def main():
     args = parser.parse_args()
 
     args.model = 'FCN8s'
-    args.git_hash = git_hash()
 
     now = datetime.datetime.now()
     args.out = osp.join(here, 'logs', now.strftime('%Y%m%d_%H%M%S.%f'))
