@@ -53,7 +53,7 @@ def main():
         torch.cuda.manual_seed(1337)
 
     # 1. dataset
-    root = osp.expanduser('~/data/datasets')
+    root = osp.expanduser('/scratch/gd1302')
     kwargs = {'num_workers': 4, 'pin_memory': True} if cuda else {}
     train_loader = torch.utils.data.DataLoader(
         voc.SBDClassSeg(root, split='train', transform=True),
