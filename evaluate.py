@@ -23,7 +23,7 @@ def main():
     os.environ['CUDA_VISIBLE_DEVICES'] = str(args.gpu)
     model_file = args.model_file
 
-    root = osp.expanduser('scratch/gd1302')
+    root = osp.expanduser('/scratch/gd1302')
     val_loader = torch.utils.data.DataLoader(
         voc.VOC2011ClassSeg(
             root, split='seg11valid', transform=True),
