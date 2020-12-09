@@ -44,15 +44,13 @@ class Trainer(object):
                  train_loader, val_loader, out, max_iter,
                  size_average=False, interval_validate=None):
         self.cuda = cuda
-
         self.model = model
         self.optim = optimizer
-
         self.train_loader = train_loader
         self.val_loader = val_loader
 
         self.timestamp_start = \
-            datetime.datetime.now(pytz.timezone('Asia/Tokyo'))
+            datetime.datetime.now(pytz.timezone('US/Eastern'))
         self.size_average = size_average
 
         if interval_validate is None:
