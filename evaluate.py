@@ -11,6 +11,8 @@ from torch.autograd import Variable
 import tqdm
 import voc.voc as voc
 import models.modelfcn8s as models
+import models.modelfcn32s as modelfcn32
+import models.modelfcn16s as modelfnc16
 import util
 
 
@@ -32,17 +34,17 @@ def main():
 
     n_class = len(val_loader.dataset.class_names)
 
-    # if osp.basename(model_file).startswith('fcn32s'):
-    #     model = torchfcn.models.FCN32s(n_class=21)
-    # elif osp.basename(model_file).startswith('fcn16s'):
-    #     model = torchfcn.models.FCN16s(n_class=21)
-    # elif osp.basename(model_file).startswith('fcn8s'):
-    #     if osp.basename(model_file).startswith('fcn8s-atonce'):
-    #         model = torchfcn.models.FCN8sAtOnce(n_class=21)
-    #     else:
-    model = models.FCN8s(n_class=21)
-    # else:
-    #     raise ValueError
+    if osp.basename(model_file).startswith('fcn32s'):
+        model = modelfcn32.FCN32s(n_class=21)
+    elif osp.basename(model_file).startswith('fcn16s'):
+        model = modelfnc16.FCN16s(n_class=21)
+    elif osp.basename(model_file).startswith('fcn8s'):
+        if osp.basename(model_file).startswith('fcn8s-atonce'):
+            model = models.FCN8sAtOnce(n_class=21)
+        else:
+            model = models.FCN8s(n_class=21)
+    else:
+        raise ValueError
     if torch.cuda.is_available():
         model = model.cuda()
     print('==> Loading %s model file: %s' %
