@@ -101,7 +101,7 @@ class VOC2011ClassSeg(VOCClassSegBase):
         super(VOC2011ClassSeg, self).__init__(
             root, split=split, transform=transform)
         imgsets_file = osp.join(
-            self.root, 'VOC/VOCdevkit/VOC2012/ImageSets/Segmentation')
+            self.root, 'VOC/VOCdevkit/VOC2012/ImageSets/Segmentation/seg11valid.txt')
         dataset_dir = osp.join(self.root, 'VOC/VOCdevkit/VOC2012')
         for did in open(imgsets_file):
             did = did.strip()
