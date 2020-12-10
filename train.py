@@ -136,7 +136,7 @@ class Trainer(object):
 
         with open(osp.join(self.out, 'log.csv'), 'a') as f:
             elapsed_time = (
-                    datetime.datetime.now(pytz.timezone('Asia/Tokyo')) -
+                    datetime.datetime.now(pytz.timezone('US/Eastern')) -
                     self.timestamp_start).total_seconds()
             log = [self.epoch, self.iteration] + [''] * 5 + \
                   [val_loss] + list(metrics) + [elapsed_time]
@@ -206,7 +206,7 @@ class Trainer(object):
 
             with open(osp.join(self.out, 'log.csv'), 'a') as f:
                 elapsed_time = (
-                        datetime.datetime.now(pytz.timezone('Asia/Tokyo')) -
+                        datetime.datetime.now(pytz.timezone('US/Eastern')) -
                         self.timestamp_start).total_seconds()
                 log = [self.epoch, self.iteration] + [loss_data] + \
                       metrics.tolist() + [''] * 5 + [elapsed_time]
