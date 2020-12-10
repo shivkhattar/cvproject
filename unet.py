@@ -23,7 +23,7 @@ def main():
     # configurations (same configuration as original work)
     # https://github.com/shelhamer/fcn.berkeleyvision.org
     parser.add_argument(
-        '--max-iteration', type=int, default=100000, help='max iteration'
+        '--max-iteration', type=int, default=200000, help='max iteration'
     )
     parser.add_argument(
         '--lr', type=float, default=1.0e-10, help='learning rate',

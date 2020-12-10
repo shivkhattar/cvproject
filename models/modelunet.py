@@ -1,113 +1,102 @@
-import torch
 import torch.nn as nn
+import torch
 import torch.nn.functional as F
 
 
-def x2conv(in_channels, out_channels, inner_channels=None):
-    inner_channels = out_channels // 2 if inner_channels is None else inner_channels
-    down_conv = nn.Sequential(
-        nn.Conv2d(in_channels, inner_channels, kernel_size=3, padding=1, bias=False),
-        nn.BatchNorm2d(inner_channels),
-        nn.ReLU(inplace=True),
-        nn.Conv2d(inner_channels, out_channels, kernel_size=3, padding=1, bias=False),
-        nn.BatchNorm2d(out_channels),
-        nn.ReLU(inplace=True))
-    return down_conv
+class unetConv2(nn.Module):
+    def __init__(self, in_size, out_size, is_batchnorm):
+        super(unetConv2, self).__init__()
+
+        if is_batchnorm:
+            self.conv1 = nn.Sequential(
+                nn.Conv2d(in_size, out_size, 3, 1, 0), nn.BatchNorm2d(out_size), nn.ReLU()
+            )
+            self.conv2 = nn.Sequential(
+                nn.Conv2d(out_size, out_size, 3, 1, 0), nn.BatchNorm2d(out_size), nn.ReLU()
+            )
+        else:
+            self.conv1 = nn.Sequential(nn.Conv2d(in_size, out_size, 3, 1, 0), nn.ReLU())
+            self.conv2 = nn.Sequential(nn.Conv2d(out_size, out_size, 3, 1, 0), nn.ReLU())
+
+    def forward(self, inputs):
+        outputs = self.conv1(inputs)
+        outputs = self.conv2(outputs)
+        return outputs
 
 
-class encoder(nn.Module):
-    def __init__(self, in_channels, out_channels):
-        super(encoder, self).__init__()
-        self.down_conv = x2conv(in_channels, out_channels)
-        self.pool = nn.MaxPool2d(kernel_size=2, ceil_mode=True)
+class unetUp(nn.Module):
+    def __init__(self, in_size, out_size, is_deconv):
+        super(unetUp, self).__init__()
+        self.conv = unetConv2(in_size, out_size, False)
+        if is_deconv:
+            self.up = nn.ConvTranspose2d(in_size, out_size, kernel_size=2, stride=2)
+        else:
+            self.up = nn.UpsamplingBilinear2d(scale_factor=2)
 
-    def forward(self, x):
-        x = self.down_conv(x)
-        x = self.pool(x)
-        return x
-
-
-class decoder(nn.Module):
-    def __init__(self, in_channels, out_channels):
-        super(decoder, self).__init__()
-        self.up = nn.ConvTranspose2d(in_channels, in_channels // 2, kernel_size=2, stride=2)
-        self.up_conv = x2conv(in_channels, out_channels)
-
-    def forward(self, x_copy, x, interpolate=True):
-        x = self.up(x)
-
-        if (x.size(2) != x_copy.size(2)) or (x.size(3) != x_copy.size(3)):
-            if interpolate:
-                # Iterpolating instead of padding
-                x = F.interpolate(x, size=(x_copy.size(2), x_copy.size(3)),
-                                  mode="bilinear", align_corners=True)
-            else:
-                # Padding in case the incomping volumes are of different sizes
-                diffY = x_copy.size()[2] - x.size()[2]
-                diffX = x_copy.size()[3] - x.size()[3]
-                x = F.pad(x, (diffX // 2, diffX - diffX // 2,
-                              diffY // 2, diffY - diffY // 2))
-
-        # Concatenate
-        x = torch.cat([x_copy, x], dim=1)
-        x = self.up_conv(x)
-        return x
+    def forward(self, inputs1, inputs2):
+        outputs2 = self.up(inputs2)
+        offset = outputs2.size()[2] - inputs1.size()[2]
+        padding = 2 * [offset // 2, offset // 2]
+        outputs1 = F.pad(inputs1, padding)
+        return self.conv(torch.cat([outputs1, outputs2], 1))
 
 
-class UNet(nn.Module):
-    def __init__(self, num_classes, in_channels=3, freeze_bn=False, **_):
-        super(UNet, self).__init__()
+class Unet(nn.Module):
+    def __init__(
+            self, feature_scale=4, n_classes=21, is_deconv=True, in_channels=3, is_batchnorm=True
+    ):
+        super(Unet, self).__init__()
+        self.is_deconv = is_deconv
+        self.in_channels = in_channels
+        self.is_batchnorm = is_batchnorm
+        self.feature_scale = feature_scale
 
-        self.start_conv = x2conv(in_channels, 64)
-        self.down1 = encoder(64, 128)
-        self.down2 = encoder(128, 256)
-        self.down3 = encoder(256, 512)
-        self.down4 = encoder(512, 1024)
+        filters = [64, 128, 256, 512, 1024]
+        filters = [int(x / self.feature_scale) for x in filters]
 
-        self.middle_conv = x2conv(1024, 1024)
+        # downsampling
+        self.conv1 = unetConv2(self.in_channels, filters[0], self.is_batchnorm)
+        self.maxpool1 = nn.MaxPool2d(kernel_size=2)
 
-        self.up1 = decoder(1024, 512)
-        self.up2 = decoder(512, 256)
-        self.up3 = decoder(256, 128)
-        self.up4 = decoder(128, 64)
-        self.final_conv = nn.Conv2d(64, num_classes, kernel_size=1)
-        self._initialize_weights()
+        self.conv2 = unetConv2(filters[0], filters[1], self.is_batchnorm)
+        self.maxpool2 = nn.MaxPool2d(kernel_size=2)
 
-        if freeze_bn:
-            self.freeze_bn()
+        self.conv3 = unetConv2(filters[1], filters[2], self.is_batchnorm)
+        self.maxpool3 = nn.MaxPool2d(kernel_size=2)
 
-    def _initialize_weights(self):
-        for module in self.modules():
-            if isinstance(module, nn.Conv2d) or isinstance(module, nn.Linear):
-                nn.init.kaiming_normal_(module.weight)
-                if module.bias is not None:
-                    module.bias.data.zero_()
-            elif isinstance(module, nn.BatchNorm2d):
-                module.weight.data.fill_(1)
-                module.bias.data.zero_()
+        self.conv4 = unetConv2(filters[2], filters[3], self.is_batchnorm)
+        self.maxpool4 = nn.MaxPool2d(kernel_size=2)
 
-    def forward(self, x):
-        x1 = self.start_conv(x)
-        x2 = self.down1(x1)
-        x3 = self.down2(x2)
-        x4 = self.down3(x3)
-        x = self.middle_conv(self.down4(x4))
+        self.center = unetConv2(filters[3], filters[4], self.is_batchnorm)
 
-        x = self.up1(x4, x)
-        x = self.up2(x3, x)
-        x = self.up3(x2, x)
-        x = self.up4(x1, x)
+        # upsampling
+        self.up_concat4 = unetUp(filters[4], filters[3], self.is_deconv)
+        self.up_concat3 = unetUp(filters[3], filters[2], self.is_deconv)
+        self.up_concat2 = unetUp(filters[2], filters[1], self.is_deconv)
+        self.up_concat1 = unetUp(filters[1], filters[0], self.is_deconv)
 
-        x = self.final_conv(x)
-        return x
+        # final conv (without any concat)
+        self.final = nn.Conv2d(filters[0], n_classes, 1)
 
-    def get_backbone_params(self):
-        # There is no backbone for unet, all the parameters are trained from scratch
-        return []
+    def forward(self, inputs):
+        conv1 = self.conv1(inputs)
+        maxpool1 = self.maxpool1(conv1)
 
-    def get_decoder_params(self):
-        return self.parameters()
+        conv2 = self.conv2(maxpool1)
+        maxpool2 = self.maxpool2(conv2)
 
-    def freeze_bn(self):
-        for module in self.modules():
-            if isinstance(module, nn.BatchNorm2d): module.eval()
+        conv3 = self.conv3(maxpool2)
+        maxpool3 = self.maxpool3(conv3)
+
+        conv4 = self.conv4(maxpool3)
+        maxpool4 = self.maxpool4(conv4)
+
+        center = self.center(maxpool4)
+        up4 = self.up_concat4(conv4, center)
+        up3 = self.up_concat3(conv3, up4)
+        up2 = self.up_concat2(conv2, up3)
+        up1 = self.up_concat1(conv1, up2)
+
+        final = self.final(up1)
+
+        return final
