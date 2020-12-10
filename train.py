@@ -175,7 +175,7 @@ class Trainer(object):
                 continue  # for resuming
             self.iteration = iteration
 
-            if self.iteration % self.interval_validate == 0:
+            if self.iteration > 0 and self.iteration % self.interval_validate == 0:
                 self.validate()
 
             assert self.model.training
