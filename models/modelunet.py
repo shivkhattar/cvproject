@@ -163,7 +163,7 @@ class DecoderUnetSCSE(nn.Module):
         )
 
     def forward(self, *args):
-        x = torch.cat(args, 1)
+        x = torch.cat(args, 2)
         return self.block(x)
 
 
