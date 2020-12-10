@@ -1,234 +1,339 @@
 import torch
 import torch.nn.functional as F
-from torchvision import models
-
-from collections import OrderedDict
+from itertools import chain
+from models import resnet
+import logging
 import torch.nn as nn
+import numpy as np
+from collections import OrderedDict
 
 
-class _ActivatedBatchNorm(nn.Module):
-    def __init__(self, num_features, activation='relu', slope=0.01, **kwargs):
-        super().__init__()
-        self.bn = nn.BatchNorm2d(num_features, **kwargs)
-        if activation == 'relu':
-            self.act = nn.ReLU(inplace=True)
-        elif activation == 'leaky_relu':
-            self.act = nn.LeakyReLU(negative_slope=slope, inplace=True)
-        elif activation == 'elu':
-            self.act = nn.ELU(inplace=True)
+def summary(model, input_shape, batch_size=-1, intputshow=True):
+    def register_hook(module):
+        def hook(module, input, output=None):
+            class_name = str(module.__class__).split(".")[-1].split("'")[0]
+            module_idx = len(summary)
+
+            m_key = "%s-%i" % (class_name, module_idx + 1)
+            summary[m_key] = OrderedDict()
+            summary[m_key]["input_shape"] = list(input[0].size())
+            summary[m_key]["input_shape"][0] = batch_size
+
+            params = 0
+            if hasattr(module, "weight") and hasattr(module.weight, "size"):
+                params += torch.prod(torch.LongTensor(list(module.weight.size())))
+                summary[m_key]["trainable"] = module.weight.requires_grad
+            if hasattr(module, "bias") and hasattr(module.bias, "size"):
+                params += torch.prod(torch.LongTensor(list(module.bias.size())))
+            summary[m_key]["nb_params"] = params
+
+        if (not isinstance(module, nn.Sequential) and not isinstance(module, nn.ModuleList)
+            and not (module == model)) and 'torch' in str(module.__class__):
+            if intputshow is True:
+                hooks.append(module.register_forward_pre_hook(hook))
+            else:
+                hooks.append(module.register_forward_hook(hook))
+
+    # create properties
+    summary = OrderedDict()
+    hooks = []
+
+    # register hook
+    model.apply(register_hook)
+    model(torch.zeros(input_shape))
+
+    # remove these hooks
+    for h in hooks:
+        h.remove()
+
+    model_info = ''
+
+    model_info += "-----------------------------------------------------------------------\n"
+    line_new = "{:>25}  {:>25} {:>15}".format("Layer (type)", "Input Shape", "Param #")
+    model_info += line_new + '\n'
+    model_info += "=======================================================================\n"
+
+    total_params = 0
+    total_output = 0
+    trainable_params = 0
+    for layer in summary:
+        line_new = "{:>25}  {:>25} {:>15}".format(
+            layer,
+            str(summary[layer]["input_shape"]),
+            "{0:,}".format(summary[layer]["nb_params"]),
+        )
+
+        total_params += summary[layer]["nb_params"]
+        if intputshow is True:
+            total_output += np.prod(summary[layer]["input_shape"])
         else:
-            self.act = None
+            total_output += np.prod(summary[layer]["output_shape"])
+        if "trainable" in summary[layer]:
+            if summary[layer]["trainable"] == True:
+                trainable_params += summary[layer]["nb_params"]
+
+        model_info += line_new + '\n'
+
+    model_info += "=======================================================================\n"
+    model_info += "Total params: {0:,}\n".format(total_params)
+    model_info += "Trainable params: {0:,}\n".format(trainable_params)
+    model_info += "Non-trainable params: {0:,}\n".format(total_params - trainable_params)
+    model_info += "-----------------------------------------------------------------------\n"
+
+    return model_info
+
+
+def initialize_weights(*models):
+    for model in models:
+        for m in model.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight.data, nonlinearity='relu')
+            elif isinstance(m, nn.BatchNorm2d):
+                m.weight.data.fill_(1.)
+                m.bias.data.fill_(1e-4)
+            elif isinstance(m, nn.Linear):
+                m.weight.data.normal_(0.0, 0.0001)
+                m.bias.data.zero_()
+
+
+def set_trainable(l, b):
+    apply_leaf(l, lambda m: set_trainable_attr(m, b))
+
+
+def apply_leaf(m, f):
+    c = m if isinstance(m, (list, tuple)) else list(m.children())
+    if isinstance(m, nn.Module):
+        f(m)
+    if len(c) > 0:
+        for l in c:
+            apply_leaf(l, f)
+
+
+def set_trainable_attr(m, b):
+    m.trainable = b
+    for p in m.parameters(): p.requires_grad = b
+
+
+class BaseModel(nn.Module):
+    def __init__(self):
+        super(BaseModel, self).__init__()
+        self.logger = logging.getLogger(self.__class__.__name__)
+
+    def forward(self):
+        raise NotImplementedError
+
+    def summary(self):
+        model_parameters = filter(lambda p: p.requires_grad, self.parameters())
+        nbr_params = sum([np.prod(p.size()) for p in model_parameters])
+        self.logger.info(f'Nbr of trainable parameters: {nbr_params}')
+
+    def __str__(self):
+        model_parameters = filter(lambda p: p.requires_grad, self.parameters())
+        nbr_params = sum([np.prod(p.size()) for p in model_parameters])
+        return super(BaseModel, self).__str__() + f'\nNbr of trainable parameters: {nbr_params}'
+        # return summary(self, input_shape=(2, 3, 224, 224))
+
+
+def x2conv(in_channels, out_channels, inner_channels=None):
+    inner_channels = out_channels // 2 if inner_channels is None else inner_channels
+    down_conv = nn.Sequential(
+        nn.Conv2d(in_channels, inner_channels, kernel_size=3, padding=1, bias=False),
+        nn.BatchNorm2d(inner_channels),
+        nn.ReLU(inplace=True),
+        nn.Conv2d(inner_channels, out_channels, kernel_size=3, padding=1, bias=False),
+        nn.BatchNorm2d(out_channels),
+        nn.ReLU(inplace=True))
+    return down_conv
+
+
+class encoder(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super(encoder, self).__init__()
+        self.down_conv = x2conv(in_channels, out_channels)
+        self.pool = nn.MaxPool2d(kernel_size=2, ceil_mode=True)
 
     def forward(self, x):
-        x = self.bn(x)
-        if self.act:
-            x = self.act(x)
+        x = self.down_conv(x)
+        x = self.pool(x)
         return x
 
 
-class SeparableConv2d(nn.Module):
-    def __init__(self, inplanes, planes, kernel_size=3, stride=1, dilation=1, relu_first=True):
-        super().__init__()
-        depthwise = nn.Conv2d(inplanes, inplanes, kernel_size,
-                              stride=stride, padding=dilation,
-                              dilation=dilation, groups=inplanes, bias=False)
-        bn_depth = nn.BatchNorm2d(inplanes)
-        pointwise = nn.Conv2d(inplanes, planes, 1, bias=False)
-        bn_point = nn.BatchNorm2d(planes)
+class decoder(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super(decoder, self).__init__()
+        self.up = nn.ConvTranspose2d(in_channels, in_channels // 2, kernel_size=2, stride=2)
+        self.up_conv = x2conv(in_channels, out_channels)
 
-        if relu_first:
-            self.block = nn.Sequential(OrderedDict([('relu', nn.ReLU()),
-                                                    ('depthwise', depthwise),
-                                                    ('bn_depth', bn_depth),
-                                                    ('pointwise', pointwise),
-                                                    ('bn_point', bn_point)
-                                                    ]))
-        else:
-            self.block = nn.Sequential(OrderedDict([('depthwise', depthwise),
-                                                    ('bn_depth', bn_depth),
-                                                    ('relu1', nn.ReLU()),
-                                                    ('pointwise', pointwise),
-                                                    ('bn_point', bn_point),
-                                                    ('relu2', nn.ReLU())
-                                                    ]))
+    def forward(self, x_copy, x, interpolate=True):
+        x = self.up(x)
 
-    def forward(self, x):
-        return self.block(x)
-
-
-ActivatedBatchNorm = _ActivatedBatchNorm
-
-
-class SegmentatorTTA(object):
-    @staticmethod
-    def hflip(x):
-        return x.flip(3)
-
-    @staticmethod
-    def vflip(x):
-        return x.flip(2)
-
-    @staticmethod
-    def trans(x):
-        return x.transpose(2, 3)
-
-    def pred_resize(self, x, size, net_type='unet'):
-        h, w = size
-        if net_type == 'unet':
-            pred = self.forward(x)
-            if x.shape[2:] == size:
-                return pred
+        if (x.size(2) != x_copy.size(2)) or (x.size(3) != x_copy.size(3)):
+            if interpolate:
+                # Iterpolating instead of padding
+                x = F.interpolate(x, size=(x_copy.size(2), x_copy.size(3)),
+                                  mode="bilinear", align_corners=True)
             else:
-                return F.interpolate(pred, size=(h, w), mode='bilinear', align_corners=True)
-        else:
-            pred = self.forward(F.pad(x, (0, 1, 0, 1)))
-            return F.interpolate(pred, size=(h + 1, w + 1), mode='bilinear', align_corners=True)[..., :h, :w]
+                # Padding in case the incomping volumes are of different sizes
+                diffY = x_copy.size()[2] - x.size()[2]
+                diffX = x_copy.size()[3] - x.size()[3]
+                x = F.pad(x, (diffX // 2, diffX - diffX // 2,
+                              diffY // 2, diffY - diffY // 2))
 
-    def tta(self, x, scales=None, net_type='unet'):
-        size = x.shape[2:]
-        if scales is None:
-            seg_sum = self.pred_resize(x, size, net_type)
-            seg_sum += self.hflip(self.pred_resize(self.hflip(x), size, net_type))
-            return seg_sum / 2
-        else:
-            # scale = 1
-            seg_sum = self.pred_resize(x, size, net_type)
-            seg_sum += self.hflip(self.pred_resize(self.hflip(x), size, net_type))
-            for scale in scales:
-                scaled = F.interpolate(x, scale_factor=scale, mode='bilinear', align_corners=True)
-                seg_sum += self.pred_resize(scaled, size, net_type)
-                seg_sum += self.hflip(self.pred_resize(self.hflip(scaled), size, net_type))
-            return seg_sum / ((len(scales) + 1) * 2)
+        # Concatenate
+        x = torch.cat([x_copy, x], dim=1)
+        x = self.up_conv(x)
+        return x
 
 
-def create_encoder(enc_type, pretrained=True):
-    return resnet(enc_type, pretrained)
+class UNet(BaseModel):
+    def __init__(self, num_classes, in_channels=3, freeze_bn=False, **_):
+        super(UNet, self).__init__()
 
+        self.start_conv = x2conv(in_channels, 64)
+        self.down1 = encoder(64, 128)
+        self.down2 = encoder(128, 256)
+        self.down3 = encoder(256, 512)
+        self.down4 = encoder(512, 1024)
 
-def resnet(name, pretrained=False):
-    def get_channels(layer):
-        block = layer[-1]
-        if isinstance(block, models.resnet.BasicBlock):
-            return block.conv2.out_channels
-        elif isinstance(block, models.resnet.Bottleneck):
-            return block.conv3.out_channels
-        raise RuntimeError("unknown resnet block: {}".format(block))
+        self.middle_conv = x2conv(1024, 1024)
 
-    resnet = models.resnet50(pretrained=pretrained)
+        self.up1 = decoder(1024, 512)
+        self.up2 = decoder(512, 256)
+        self.up3 = decoder(256, 128)
+        self.up4 = decoder(128, 64)
+        self.final_conv = nn.Conv2d(64, num_classes, kernel_size=1)
+        self._initialize_weights()
 
-    layer0 = nn.Sequential(resnet.conv1, resnet.bn1, resnet.relu, resnet.maxpool)
-    layer0.out_channels = resnet.bn1.num_features
-    resnet.layer1.out_channels = get_channels(resnet.layer1)
-    resnet.layer2.out_channels = get_channels(resnet.layer2)
-    resnet.layer3.out_channels = get_channels(resnet.layer3)
-    resnet.layer4.out_channels = get_channels(resnet.layer4)
-    return [layer0, resnet.layer1, resnet.layer2, resnet.layer3, resnet.layer4]
+        if freeze_bn:
+            self.freeze_bn()
 
-
-def create_decoder():
-    return DecoderUnetSCSE
-
-
-class SCSEBlock(nn.Module):
-    def __init__(self, channel, reduction=16):
-        super().__init__()
-        self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.channel_excitation = nn.Sequential(nn.Linear(channel, int(channel // reduction)),
-                                                nn.ReLU(inplace=True),
-                                                nn.Linear(int(channel // reduction), channel))
-        self.spatial_se = nn.Conv2d(channel, 1, kernel_size=1,
-                                    stride=1, padding=0, bias=False)
+    def _initialize_weights(self):
+        for module in self.modules():
+            if isinstance(module, nn.Conv2d) or isinstance(module, nn.Linear):
+                nn.init.kaiming_normal_(module.weight)
+                if module.bias is not None:
+                    module.bias.data.zero_()
+            elif isinstance(module, nn.BatchNorm2d):
+                module.weight.data.fill_(1)
+                module.bias.data.zero_()
 
     def forward(self, x):
-        bahs, chs, _, _ = x.size()
+        x1 = self.start_conv(x)
+        x2 = self.down1(x1)
+        x3 = self.down2(x2)
+        x4 = self.down3(x3)
+        x = self.middle_conv(self.down4(x4))
 
-        # Returns a new tensor with the same data as the self tensor but of a different size.
-        chn_se = self.avg_pool(x).view(bahs, chs)
-        chn_se = torch.sigmoid(self.channel_excitation(chn_se).view(bahs, chs, 1, 1))
-        chn_se = torch.mul(x, chn_se)
+        x = self.up1(x4, x)
+        x = self.up2(x3, x)
+        x = self.up3(x2, x)
+        x = self.up4(x1, x)
 
-        spa_se = torch.sigmoid(self.spatial_se(x))
-        spa_se = torch.mul(x, spa_se)
-        return torch.add(chn_se, 1, spa_se)
+        x = self.final_conv(x)
+        return x
 
+    def get_backbone_params(self):
+        # There is no backbone for unet, all the parameters are trained from scratch
+        return []
 
-class DecoderUnetSCSE(nn.Module):
-    def __init__(self, in_channels, middle_channels, out_channels):
-        super().__init__()
-        self.block = nn.Sequential(
-            nn.Conv2d(in_channels, middle_channels, kernel_size=3, padding=1),
-            ActivatedBatchNorm(middle_channels),
-            SCSEBlock(middle_channels),
-            nn.ConvTranspose2d(middle_channels, out_channels, kernel_size=4, stride=2, padding=1)
-        )
+    def get_decoder_params(self):
+        return self.parameters()
 
-    def forward(self, *args):
-        x = torch.cat(args, 2)
-        return self.block(x)
+    def freeze_bn(self):
+        for module in self.modules():
+            if isinstance(module, nn.BatchNorm2d): module.eval()
 
 
-class UNet(nn.Module, SegmentatorTTA):
-    def __init__(self, output_channels=21, enc_type='resnet50', dec_type='unet_scse',
-                 num_filters=16, pretrained=False):
-        super().__init__()
-        self.output_channels = output_channels
-        self.enc_type = enc_type
-        self.dec_type = dec_type
+"""
+-> Unet with a resnet backbone
+"""
 
-        assert enc_type in ['resnet50']
-        assert dec_type in ['unet_scse']
 
-        encoder = create_encoder(enc_type, pretrained)
-        Decoder = create_decoder()
+class UNetResnet(BaseModel):
+    def __init__(self, num_classes, in_channels=3, backbone='resnet50', pretrained=True, freeze_bn=False,
+                 freeze_backbone=False, **_):
+        super(UNetResnet, self).__init__()
+        model = getattr(resnet, backbone)(pretrained, norm_layer=nn.BatchNorm2d)
 
-        self.encoder1 = encoder[0]
-        self.encoder2 = encoder[1]
-        self.encoder3 = encoder[2]
-        self.encoder4 = encoder[3]
-        self.encoder5 = encoder[4]
+        self.initial = list(model.children())[:4]
+        if in_channels != 3:
+            self.initial[0] = nn.Conv2d(in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)
+        self.initial = nn.Sequential(*self.initial)
 
-        self.pool = nn.MaxPool2d(2, 2)
-        self.center = Decoder(self.encoder5.out_channels, num_filters * 32 * 2, num_filters * 32)
+        # encoder
+        self.layer1 = model.layer1
+        self.layer2 = model.layer2
+        self.layer3 = model.layer3
+        self.layer4 = model.layer4
 
-        self.decoder5 = Decoder(self.encoder5.out_channels + num_filters * 32, num_filters * 32 * 2,
-                                num_filters * 16)
-        self.decoder4 = Decoder(self.encoder4.out_channels + num_filters * 16, num_filters * 16 * 2,
-                                num_filters * 8)
-        self.decoder3 = Decoder(self.encoder3.out_channels + num_filters * 8, num_filters * 8 * 2, num_filters * 4)
-        self.decoder2 = Decoder(self.encoder2.out_channels + num_filters * 4, num_filters * 4 * 2, num_filters * 2)
-        self.decoder1 = Decoder(self.encoder1.out_channels + num_filters * 2, num_filters * 2 * 2, num_filters)
+        # decoder
+        self.conv1 = nn.Conv2d(2048, 192, kernel_size=3, stride=1, padding=1)
+        self.upconv1 = nn.ConvTranspose2d(192, 128, 4, 2, 1, bias=False)
 
-        self.logits = nn.Sequential(
-            nn.Conv2d(num_filters * (16 + 8 + 4 + 2 + 1), 64, kernel_size=1, padding=0),
-            ActivatedBatchNorm(64),
-            nn.Conv2d(64, self.output_channels, kernel_size=1)
-        )
+        self.conv2 = nn.Conv2d(1152, 128, kernel_size=3, stride=1, padding=1)
+        self.upconv2 = nn.ConvTranspose2d(128, 96, 4, 2, 1, bias=False)
+
+        self.conv3 = nn.Conv2d(608, 96, kernel_size=3, stride=1, padding=1)
+        self.upconv3 = nn.ConvTranspose2d(96, 64, 4, 2, 1, bias=False)
+
+        self.conv4 = nn.Conv2d(320, 64, kernel_size=3, stride=1, padding=1)
+        self.upconv4 = nn.ConvTranspose2d(64, 48, 4, 2, 1, bias=False)
+
+        self.conv5 = nn.Conv2d(48, 48, kernel_size=3, stride=1, padding=1)
+        self.upconv5 = nn.ConvTranspose2d(48, 32, 4, 2, 1, bias=False)
+
+        self.conv6 = nn.Conv2d(32, 32, kernel_size=3, stride=1, padding=1)
+        self.conv7 = nn.Conv2d(32, num_classes, kernel_size=1, bias=False)
+
+        initialize_weights(self)
+
+        if freeze_bn:
+            self.freeze_bn()
+        if freeze_backbone:
+            set_trainable([self.initial, self.layer1, self.layer2, self.layer3, self.layer4], False)
 
     def forward(self, x):
-        img_size = x.shape[2:]
+        H, W = x.size(2), x.size(3)
+        x1 = self.layer1(self.initial(x))
+        x2 = self.layer2(x1)
+        x3 = self.layer3(x2)
+        x4 = self.layer4(x3)
 
-        e1 = self.encoder1(x)
-        e2 = self.encoder2(e1)
-        e3 = self.encoder3(e2)
-        e4 = self.encoder4(e3)
-        e5 = self.encoder5(e4)
+        x = self.upconv1(self.conv1(x4))
+        x = F.interpolate(x, size=(x3.size(2), x3.size(3)), mode="bilinear", align_corners=True)
+        x = torch.cat([x, x3], dim=1)
+        x = self.upconv2(self.conv2(x))
 
-        c = self.center(self.pool(e5))
-        e1_up = F.interpolate(e1, scale_factor=2, mode='bilinear', align_corners=False)
+        x = F.interpolate(x, size=(x2.size(2), x2.size(3)), mode="bilinear", align_corners=True)
+        x = torch.cat([x, x2], dim=1)
+        x = self.upconv3(self.conv3(x))
 
-        d5 = self.decoder5(c, e5)
-        d4 = self.decoder4(d5, e4)
-        d3 = self.decoder3(d4, e3)
-        d2 = self.decoder2(d3, e2)
-        d1 = self.decoder1(d2, e1_up)
+        x = F.interpolate(x, size=(x1.size(2), x1.size(3)), mode="bilinear", align_corners=True)
+        x = torch.cat([x, x1], dim=1)
 
-        u5 = F.interpolate(d5, img_size, mode='bilinear', align_corners=False)
-        u4 = F.interpolate(d4, img_size, mode='bilinear', align_corners=False)
-        u3 = F.interpolate(d3, img_size, mode='bilinear', align_corners=False)
-        u2 = F.interpolate(d2, img_size, mode='bilinear', align_corners=False)
+        x = self.upconv4(self.conv4(x))
 
-        # Hyper column
-        d = torch.cat((d1, u2, u3, u4, u5), 1)
-        logits = self.logits(d)
+        x = self.upconv5(self.conv5(x))
 
-        return logits
+        # if the input is not divisible by the output stride
+        if x.size(2) != H or x.size(3) != W:
+            x = F.interpolate(x, size=(H, W), mode="bilinear", align_corners=True)
+
+        x = self.conv7(self.conv6(x))
+        return x
+
+    def get_backbone_params(self):
+        return chain(self.initial.parameters(), self.layer1.parameters(), self.layer2.parameters(),
+                     self.layer3.parameters(), self.layer4.parameters())
+
+    def get_decoder_params(self):
+        return chain(self.conv1.parameters(), self.upconv1.parameters(), self.conv2.parameters(),
+                     self.upconv2.parameters(),
+                     self.conv3.parameters(), self.upconv3.parameters(), self.conv4.parameters(),
+                     self.upconv4.parameters(),
+                     self.conv5.parameters(), self.upconv5.parameters(), self.conv6.parameters(),
+                     self.conv7.parameters())
+
+    def freeze_bn(self):
+        for module in self.modules():
+            if isinstance(module, nn.BatchNorm2d): module.eval()
