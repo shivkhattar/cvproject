@@ -1,105 +1,178 @@
-import torch.nn as nn
 import torch
-import torch.nn.functional as F
+import torch.nn as nn
 
 
-class unetConv2(nn.Module):
-    def __init__(self, in_size, out_size, is_batchnorm):
-        super(unetConv2, self).__init__()
+def conv3x3(in_planes, out_planes):
+    "3x3 convolution with padding"
 
-        if is_batchnorm:
-            self.conv1 = nn.Sequential(
-                nn.Conv2d(in_size, out_size, 3, 1, 1), nn.BatchNorm2d(out_size), nn.ReLU()
-            )
-            self.conv2 = nn.Sequential(
-                nn.Conv2d(out_size, out_size, 3, 1, 1), nn.BatchNorm2d(out_size), nn.ReLU()
-            )
+    return nn.Conv2d(in_planes,
+                     out_planes,
+                     kernel_size=3,
+                     padding=1,
+                     bias=True)
+
+
+class UnetDownBlock(nn.Module):
+    """ Downsampling block of Unet.
+
+        The whole architercture of Unet has a one common pattern: a block
+        that spatially downsamples the input followed by two layers of 3x3 convolutions that
+        has 'inplanes' number of input planes and 'planes' number of channels.
+
+    """
+
+    def __init__(self, inplanes, planes, predownsample_block):
+        super(UnetDownBlock, self).__init__()
+
+        self.predownsample_block = predownsample_block
+        self.conv1 = conv3x3(inplanes, planes)
+        self.relu = nn.ReLU(inplace=True)
+        self.conv2 = conv3x3(planes, planes)
+
+    def forward(self, x):
+        x = self.predownsample_block(x)
+        x = self.conv1(x)
+        x = self.relu(x)
+        x = self.conv2(x)
+
+        return x
+
+
+class UnetUpBlock(nn.Module):
+    """ Upsampling block of Unet.
+
+        The whole architercture of Unet has a one common pattern: a block
+        that has two layers of 3x3 convolutions that
+        has 'inplanes' number of input planes and 'planes' number of channels,
+        followed by 'postupsample_block' which increases the spatial resolution
+
+    """
+
+    def __init__(self, inplanes, planes, postupsample_block=None):
+
+        super(UnetUpBlock, self).__init__()
+
+        self.conv1 = conv3x3(inplanes, planes)
+        self.relu = nn.ReLU(inplace=True)
+        self.conv2 = conv3x3(planes, planes)
+
+        if postupsample_block is None:
+
+            self.postupsample_block = torch.nn.ConvTranspose2d(in_channels=planes,
+                                                               out_channels=planes / 2,
+                                                               kernel_size=2,
+                                                               stride=2)
         else:
-            self.conv1 = nn.Sequential(nn.Conv2d(in_size, out_size, 3, 1, 1), nn.ReLU())
-            self.conv2 = nn.Sequential(nn.Conv2d(out_size, out_size, 3, 1, 1), nn.ReLU())
 
-    def forward(self, inputs):
-        outputs = self.conv1(inputs)
-        outputs = self.conv2(outputs)
-        return outputs
+            self.postupsample_block = postupsample_block
 
+    def forward(self, x):
 
-class unetUp(nn.Module):
-    def __init__(self, in_size, out_size, is_deconv):
-        super(unetUp, self).__init__()
-        self.conv = unetConv2(in_size, out_size, False)
-        if is_deconv:
-            self.up = nn.ConvTranspose2d(in_size, out_size, kernel_size=2, stride=2)
-        else:
-            self.up = nn.UpsamplingBilinear2d(scale_factor=2)
+        x = self.conv1(x)
+        x = self.relu(x)
+        x = self.conv2(x)
+        x = self.postupsample_block(x)
 
-    def forward(self, inputs1, inputs2):
-        outputs2 = self.up(inputs2)
-        offsetY = outputs2.size()[2] - inputs1.size()[2]
-        offsetX = outputs2.size()[3] - inputs1.size()[3]
-        # padding = 2 * [offset // 2, offset // 2]
-        # outputs1 = F.pad(inputs1, padding)
-        outputs1 = nn.functional.pad(inputs1, (offsetX // 2, offsetX - offsetX//2,
-                                    offsetY // 2, offsetY - offsetY//2))
-        return self.conv(torch.cat([outputs1, outputs2], dim=1))
+        return x
 
 
 class UNet(nn.Module):
-    def __init__(
-            self, feature_scale=4, n_classes=21, is_deconv=True, in_channels=3, is_batchnorm=True
-    ):
+    """Unet network. ~297 ms on hd image."""
+
+    def __init__(self, num_classes=2):
         super(UNet, self).__init__()
-        self.is_deconv = is_deconv
-        self.in_channels = in_channels
-        self.is_batchnorm = is_batchnorm
-        self.feature_scale = feature_scale
 
-        filters = [64, 128, 256, 512, 1024]
-        filters = [int(x / self.feature_scale) for x in filters]
+        self.predownsample_block = nn.MaxPool2d(kernel_size=2, stride=2)
 
-        # downsampling
-        self.conv1 = unetConv2(self.in_channels, filters[0], self.is_batchnorm)
-        self.maxpool1 = nn.MaxPool2d(kernel_size=2)
+        self.identity_block = nn.Sequential()
 
-        self.conv2 = unetConv2(filters[0], filters[1], self.is_batchnorm)
-        self.maxpool2 = nn.MaxPool2d(kernel_size=2)
+        self.block1 = UnetDownBlock(
+            predownsample_block=self.identity_block,
+            inplanes=3,
+            planes=64,
+        )
 
-        self.conv3 = unetConv2(filters[1], filters[2], self.is_batchnorm)
-        self.maxpool3 = nn.MaxPool2d(kernel_size=2)
+        self.block2_down = UnetDownBlock(
+            predownsample_block=self.predownsample_block,
+            inplanes=64,
+            planes=128,
+        )
 
-        self.conv4 = unetConv2(filters[2], filters[3], self.is_batchnorm)
-        self.maxpool4 = nn.MaxPool2d(kernel_size=2)
+        self.block3_down = UnetDownBlock(
+            predownsample_block=self.predownsample_block,
+            inplanes=128,
+            planes=256
+        )
 
-        self.center = unetConv2(filters[3], filters[4], self.is_batchnorm)
+        self.block4_down = UnetDownBlock(
+            predownsample_block=self.predownsample_block,
+            inplanes=256,
+            planes=512
+        )
 
-        # upsampling
-        self.up_concat4 = unetUp(filters[4], filters[3], self.is_deconv)
-        self.up_concat3 = unetUp(filters[3], filters[2], self.is_deconv)
-        self.up_concat2 = unetUp(filters[2], filters[1], self.is_deconv)
-        self.up_concat1 = unetUp(filters[1], filters[0], self.is_deconv)
+        self.block5_down = UnetDownBlock(
+            predownsample_block=self.predownsample_block,
+            inplanes=512,
+            planes=1024
+        )
 
-        # final conv (without any concat)
-        self.final = nn.Conv2d(filters[0], n_classes, 1)
+        self.block1_up = torch.nn.ConvTranspose2d(in_channels=1024,
+                                                  out_channels=512,
+                                                  kernel_size=2,
+                                                  stride=2)
 
-    def forward(self, inputs):
-        conv1 = self.conv1(inputs)
-        maxpool1 = self.maxpool1(conv1)
+        self.block2_up = UnetUpBlock(
+            inplanes=1024,
+            planes=512
+        )
 
-        conv2 = self.conv2(maxpool1)
-        maxpool2 = self.maxpool2(conv2)
+        self.block3_up = UnetUpBlock(
+            inplanes=512,
+            planes=256
+        )
 
-        conv3 = self.conv3(maxpool2)
-        maxpool3 = self.maxpool3(conv3)
+        self.block4_up = UnetUpBlock(
+            inplanes=256,
+            planes=128
+        )
 
-        conv4 = self.conv4(maxpool3)
-        maxpool4 = self.maxpool4(conv4)
+        self.block5 = UnetUpBlock(
+            inplanes=128,
+            planes=64,
+            postupsample_block=self.identity_block
+        )
 
-        center = self.center(maxpool4)
-        up4 = self.up_concat4(conv4, center)
-        up3 = self.up_concat3(conv3, up4)
-        up2 = self.up_concat2(conv2, up3)
-        up1 = self.up_concat1(conv1, up2)
+        self.logit_conv = nn.Conv2d(64,
+                                    num_classes,
+                                    kernel_size=1)
 
-        final = self.final(up1)
+    def forward(self, x):
+        input_spatial_dim = x.size()[2:]
 
-        return final
+        # Left part of the U figure in the Unet paper
+        features_1s_down = self.block1(x)
+        features_2s_down = self.block2_down(features_1s_down)
+        features_4s_down = self.block3_down(features_2s_down)
+        features_8s_down = self.block4_down(features_4s_down)
+
+        # Bottom part of the U figure in the Unet paper
+        features_16s = self.block5_down(features_8s_down)
+
+        # Right part of the U figure in the Unet paper
+        features_8s_up = self.block1_up(features_16s)
+        features_8s_up = torch.cat([features_8s_down, features_8s_up], dim=1)
+
+        features_4s_up = self.block2_up(features_8s_up)
+        features_4s_up = torch.cat([features_4s_down, features_4s_up], dim=1)
+
+        features_2s_up = self.block3_up(features_4s_up)
+        features_2s_up = torch.cat([features_2s_down, features_2s_up], dim=1)
+
+        features_1s_up = self.block4_up(features_2s_up)
+        features_1s_up = torch.cat([features_1s_down, features_1s_up], dim=1)
+
+        features_final = self.block5(features_1s_up)
+
+        logits = self.logit_conv(features_final)
+
+        return logits
