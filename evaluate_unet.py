@@ -51,7 +51,8 @@ def main():
                                                ncols=80, leave=False):
         if torch.cuda.is_available():
             data, target = data.cuda(), target.cuda()
-        data, target = Variable(data, volatile=True), Variable(target)
+        with torch.no_grad():
+            data, target = Variable(data), Variable(target)
         score = model(data)
 
         imgs = data.data.cpu()
