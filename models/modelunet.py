@@ -41,11 +41,11 @@ class unetUp(nn.Module):
         return self.conv(torch.cat([outputs1, outputs2], 1))
 
 
-class Unet(nn.Module):
+class UNet(nn.Module):
     def __init__(
             self, feature_scale=4, n_classes=21, is_deconv=True, in_channels=3, is_batchnorm=True
     ):
-        super(Unet, self).__init__()
+        super(UNet, self).__init__()
         self.is_deconv = is_deconv
         self.in_channels = in_channels
         self.is_batchnorm = is_batchnorm
