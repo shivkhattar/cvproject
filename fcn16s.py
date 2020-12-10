@@ -48,7 +48,7 @@ def main():
     args.model = 'FCN16s'
 
     now = datetime.datetime.now()
-    args.out = osp.join(here, 'logs', now.strftime('%Y%m%d_%H%M%S.%f'))
+    args.out = osp.join(here, 'logs-fcn16', now.strftime('%Y%m%d_%H%M%S.%f'))
 
     os.makedirs(args.out)
     with open(osp.join(args.out, 'config.yaml'), 'w') as f:
