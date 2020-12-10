@@ -64,7 +64,7 @@ def main():
         batch_size=1, shuffle=False, **kwargs)
 
     # 2. model
-    model = unet.UNet(num_classes=21)
+    model = unet.UNet()
     start_epoch = 0
     start_iteration = 0
     if args.resume:
