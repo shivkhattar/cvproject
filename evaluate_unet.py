@@ -31,7 +31,7 @@ def main():
         num_workers=4, pin_memory=True)
 
     n_class = len(val_loader.dataset.class_names)
-    model = unet.UNet()
+    model = unet.UNetResnet(num_classes=21)
     if torch.cuda.is_available():
         model = model.cuda()
     print('==> Loading %s model file: %s' %
