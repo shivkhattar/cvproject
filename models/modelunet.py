@@ -35,10 +35,13 @@ class unetUp(nn.Module):
 
     def forward(self, inputs1, inputs2):
         outputs2 = self.up(inputs2)
-        offset = outputs2.size()[2] - inputs1.size()[2]
-        padding = 2 * [offset // 2, offset // 2]
-        outputs1 = F.pad(inputs1, padding)
-        return self.conv(torch.cat([outputs1, outputs2], 1))
+        offsetY = outputs2.size()[2] - inputs1.size()[2]
+        offsetX = outputs2.size()[3] - inputs1.size()[3]
+        # padding = 2 * [offset // 2, offset // 2]
+        # outputs1 = F.pad(inputs1, padding)
+        outputs1 = nn.functional.pad(inputs1, (offsetX // 2, offsetX - offsetX//2,
+                                    offsetY // 2, offsetY - offsetY//2))
+        return self.conv(torch.cat([outputs1, outputs2], dim=1))
 
 
 class UNet(nn.Module):
