@@ -12,6 +12,7 @@ import models.modelsegnet as segnet
 import train
 
 
+
 here = osp.dirname(osp.abspath(__file__))
 
 
@@ -82,7 +83,10 @@ def main():
     # 3. optimizer
     optim = torch.optim.SGD(
         [
-            {'lr': args.lr * 2, 'weight_decay': 0},
+            {'params': [param for name, param in model.named_parameters() if name[-4:] == 'bias'],
+             'lr': 2 * args.lr},
+            {'params': [param for name, param in model.named_parameters() if name[-4:] != 'bias'],
+             'lr': args.lr, 'weight_decay': 0}
         ],
         lr=args.lr,
         momentum=args.momentum,
