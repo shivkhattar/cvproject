@@ -55,7 +55,7 @@ class Trainer(object):
         self.timestamp_start = \
             datetime.datetime.now(pytz.timezone('US/Eastern'))
         self.size_average = size_average
-        self.scheduler = opt.lr_scheduler.ReduceLROnPlateau(optimizer, 'min' if self.model.num_classes > 1 else 'max', patience=2)
+        self.scheduler = opt.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=2)
 
         if interval_validate is None:
             self.interval_validate = len(self.train_loader)
