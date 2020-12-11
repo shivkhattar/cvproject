@@ -62,19 +62,25 @@ class Segnet(nn.Module):
         self.final = nn.Conv2d(64, num_classes, 3, padding=1)
 
     def forward(self, x):
-        '''
-            Attention, input size should be the 32x.
-        '''
-        dec1 = self.dec1(x)
-        dec2 = self.dec2(dec1)
-        dec3 = self.dec3(dec2)
-        dec4 = self.dec4(dec3)
-        dec5 = self.dec5(dec4)
-        enc5 = self.enc5(dec5)
+        x1 = self.dec1(x)
+        d1, m1 = F.max_pool2d(x1, kernel_size=2, stride=2, return_indices=True)
+        x2 = self.dec2(d1)
+        d2, m2 = F.max_pool2d(x2, kernel_size=2, stride=2, return_indices=True)
+        x3 = self.dec3(d2)
+        d3, m3 = F.max_pool2d(x3, kernel_size=2, stride=2, return_indices=True)
+        x4 = self.dec4(d3)
+        d4, m4 = F.max_pool2d(x4, kernel_size=2, stride=2, return_indices=True)
+        x5 = self.dec5(d4)
+        d5, m5 = F.max_pool2d(x5, kernel_size=2, stride=2, return_indices=True)
 
-        enc4 = self.enc4(torch.cat([dec4, enc5], 1))
-        enc3 = self.enc3(torch.cat([dec3, enc4], 1))
-        enc2 = self.enc2(torch.cat([dec2, enc3], 1))
-        enc1 = self.enc1(torch.cat([dec1, enc2], 1))
+        def upsample(d):
+            e5 = self.enc5(F.max_unpool2d(d, m5, kernel_size=2, stride=2, output_size=x5.size()))
+            e4 = self.enc4(F.max_unpool2d(e5, m4, kernel_size=2, stride=2, output_size=x4.size()))
+            e3 = self.enc3(F.max_unpool2d(e4, m3, kernel_size=2, stride=2, output_size=x3.size()))
+            e2 = self.enc2(F.max_unpool2d(e3, m2, kernel_size=2, stride=2, output_size=x2.size()))
+            e1 = F.max_unpool2d(e2, m1, kernel_size=2, stride=2, output_size=x1.size())
+            return e1
 
-        return F.upsample_bilinear(self.final(enc1), x.size()[2:])
+        e = upsample(d5)
+
+        return self.final(e)
