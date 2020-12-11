@@ -28,7 +28,7 @@ def main():
         '--max-iteration', type=int, default=200000, help='max iteration'
     )
     parser.add_argument(
-        '--lr', type=float, default=1.0e-10, help='learning rate',
+        '--lr', type=float, default=0.001, help='learning rate',
     )
     parser.add_argument(
         '--weight-decay', type=float, default=0.0005, help='weight decay',
@@ -66,8 +66,8 @@ def main():
         batch_size=1, shuffle=False, **kwargs)
 
     # 2. model
-    # model = unet.UNetResnet(num_classes=21)
-    model = MyUNet(n_channels=3, n_classes=21)
+    model = unet.UNetResnet(num_classes=21)
+    # model = MyUNet(n_channels=3, n_classes=21)
     start_epoch = 0
     start_iteration = 0
     if args.resume:
