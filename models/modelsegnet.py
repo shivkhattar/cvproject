@@ -46,7 +46,7 @@ class Segnet(nn.Module):
         super(Segnet, self).__init__()
         vgg = modelvgg.VGG16(pretrained=True)
         if pretrained:
-            vgg.load_state_dict(torch.load('~/data/models/pytorch/vgg16_from_caffe.pth'))
+            vgg.load_state_dict(torch.load('/home/sk8325/data/models/pytorch/vgg16_from_caffe.pth'))
         features = list(vgg.features.children())
         self.enc1 = nn.Sequential(*features[0:7])
         self.enc2 = nn.Sequential(*features[7:14])
