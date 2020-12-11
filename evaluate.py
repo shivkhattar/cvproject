@@ -44,7 +44,7 @@ def main():
         else:
             model = models.FCN8s(n_class=21)
     else:
-        raise ValueError
+        model = modelfnc16.FCN16s(n_class=21)
     if torch.cuda.is_available():
         model = model.cuda()
     print('==> Loading %s model file: %s' %
