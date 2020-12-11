@@ -9,7 +9,7 @@ class _DecoderBlock(nn.Module):
         middle_channels = in_channels / 2
         layers = [
             nn.ConvTranspose2d(in_channels, in_channels, kernel_size=2, stride=2),
-            nn.Conv2d(in_channels, middle_channels, kernel_size=3, padding=1),
+            nn.Conv2d(in_channels, out_channels=middle_channels, kernel_size=3, padding=1),
             nn.BatchNorm2d(middle_channels),
             nn.ReLU(inplace=True)
         ]
