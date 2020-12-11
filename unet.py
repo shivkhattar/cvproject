@@ -10,7 +10,7 @@ import yaml
 import voc.voc as voc
 import models.modelunet as unet
 import train
-
+from models.new_unet import MyUNet
 here = osp.dirname(osp.abspath(__file__))
 
 
@@ -64,7 +64,8 @@ def main():
         batch_size=1, shuffle=False, **kwargs)
 
     # 2. model
-    model = unet.UNetResnet(num_classes=21)
+    # model = unet.UNetResnet(num_classes=21)
+    model = MyUNet(n_channels=3, n_classes=21)
     start_epoch = 0
     start_iteration = 0
     if args.resume:

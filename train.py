@@ -184,7 +184,9 @@ class Trainer(object):
                 data, target = data.cuda(), target.cuda()
             data, target = Variable(data), Variable(target)
             self.optim.zero_grad()
+            print(data.shape)
             score = self.model(data)
+            print(data.shape, score.shape, target.shape)
 
             loss = cross_entropy2d(score, target,
                                    size_average=self.size_average)
