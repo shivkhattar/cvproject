@@ -32,34 +32,32 @@ class SegNetEnc(nn.Module):
         return self.encode(x)
 
 
-class Segnet(nn.Module):
+class SegNet(nn.Module):
 
     def __init__(self, num_classes):
         super().__init__()
-
-        decoders = list(models.vgg16(pretrained=True).features.children())
-
-        self.dec1 = nn.Sequential(*decoders[:5])
-        self.dec2 = nn.Sequential(*decoders[5:10])
-        self.dec3 = nn.Sequential(*decoders[10:17])
-        self.dec4 = nn.Sequential(*decoders[17:24])
-        self.dec5 = nn.Sequential(*decoders[24:])
+        vgg16 = models.vgg16(pretrained=True)
+        features = vgg16.features
+        self.dec1 = features[0: 4]
+        self.dec2 = features[5: 9]
+        self.dec3 = features[10: 16]
+        self.dec4 = features[17: 23]
+        self.dec5 = features[24: -1]
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 m.requires_grad = False
 
         self.enc5 = SegNetEnc(512, 512, 1)
-        self.enc4 = SegNetEnc(1024, 256, 1)
-        self.enc3 = SegNetEnc(512, 128, 1)
-        self.enc2 = SegNetEnc(256, 64, 0)
-        self.enc1 = nn.Sequential(
-            nn.Upsample(scale_factor=2, mode='bilinear'),
-            nn.Conv2d(128, 64, 3, padding=1),
-            nn.BatchNorm2d(64),
-            nn.ReLU(inplace=True),
-        )
-        self.final = nn.Conv2d(64, num_classes, 3, padding=1)
+        self.enc4 = SegNetEnc(512, 256, 1)
+        self.enc3 = SegNetEnc(256, 128, 1)
+        self.enc2 = SegNetEnc(128, 64, 0)
+
+        self.final = nn.Sequential(*[
+            nn.Conv2d(64, num_classes, 3, padding=1),
+            nn.BatchNorm2d(num_classes),
+            nn.ReLU(inplace=True)
+        ])
 
     def forward(self, x):
         x1 = self.dec1(x)
