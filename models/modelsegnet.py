@@ -32,7 +32,7 @@ class SegNetEnc(nn.Module):
         return self.encode(x)
 
 
-class SegNet(nn.Module):
+class Segnet(nn.Module):
 
     def __init__(self, num_classes):
         super().__init__()
