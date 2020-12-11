@@ -1,81 +1,80 @@
-import torch.nn as nn
 import torch
-import models.modelvgg as modelvgg
+import torch.nn as nn
+import torch.nn.functional as F
+
+from torchvision import models
 
 
-class _DecoderBlock(nn.Module):
-    def __init__(self, in_channels, out_channels, num_conv_layers):
-        super(_DecoderBlock, self).__init__()
-        middle_channels = int(in_channels / 2)
+class SegNetEnc(nn.Module):
+
+    def __init__(self, in_channels, out_channels, num_layers):
+        super().__init__()
+
         layers = [
-            nn.ConvTranspose2d(in_channels, in_channels, kernel_size=2, stride=2),
-            nn.Conv2d(in_channels, out_channels=middle_channels, kernel_size=3, padding=1),
-            nn.BatchNorm2d(middle_channels),
-            nn.ReLU(inplace=True)
+            nn.Upsample(scale_factor=2, mode='bilinear'),
+            nn.Conv2d(in_channels, in_channels // 2, 3, padding=1),
+            nn.BatchNorm2d(in_channels // 2),
+            nn.ReLU(inplace=True),
         ]
         layers += [
-                      nn.Conv2d(middle_channels, middle_channels, kernel_size=3, padding=1),
-                      nn.BatchNorm2d(middle_channels),
+                      nn.Conv2d(in_channels // 2, in_channels // 2, 3, padding=1),
+                      nn.BatchNorm2d(in_channels // 2),
                       nn.ReLU(inplace=True),
-                  ] * (num_conv_layers - 2)
+                  ] * num_layers
         layers += [
-            nn.Conv2d(middle_channels, out_channels, kernel_size=3, padding=1),
+            nn.Conv2d(in_channels // 2, out_channels, 3, padding=1),
             nn.BatchNorm2d(out_channels),
             nn.ReLU(inplace=True),
         ]
-        self.decode = nn.Sequential(*layers)
+        self.encode = nn.Sequential(*layers)
 
     def forward(self, x):
-        return self.decode(x)
+        return self.encode(x)
 
 
-def initialize_weights(*models):
-    for model in models:
-        for module in model.modules():
-            if isinstance(module, nn.Conv2d) or isinstance(module, nn.Linear):
-                nn.init.kaiming_normal(module.weight)
-                if module.bias is not None:
-                    module.bias.data.zero_()
-            elif isinstance(module, nn.BatchNorm2d):
-                module.weight.data.fill_(1)
-                module.bias.data.zero_()
+class SegNet(nn.Module):
 
+    def __init__(self, num_classes):
+        super().__init__()
 
-class Segnet(nn.Module):
-    def __init__(self, num_classes=21, pretrained=True):
-        super(Segnet, self).__init__()
-        vgg = modelvgg.VGG16(pretrained=True)
-        if pretrained:
-            vgg.load_state_dict(torch.load('/home/sk8325/data/models/pytorch/vgg16_from_caffe.pth'))
-        features = list(vgg.features.children())
-        self.enc1 = nn.Sequential(*features[0:7])
-        self.enc2 = nn.Sequential(*features[7:14])
-        self.enc3 = nn.Sequential(*features[14:27])
-        self.enc4 = nn.Sequential(*features[27:40])
-        self.enc5 = nn.Sequential(*features[40:])
+        decoders = list(models.vgg16(pretrained=True).features.children())
 
-        self.dec5 = nn.Sequential(
-            *([nn.ConvTranspose2d(512, 512, kernel_size=2, stride=2)] +
-              [nn.Conv2d(512, 512, kernel_size=3, padding=1),
-               nn.BatchNorm2d(512),
-               nn.ReLU(inplace=True)] * 4)
+        self.dec1 = nn.Sequential(*decoders[:5])
+        self.dec2 = nn.Sequential(*decoders[5:10])
+        self.dec3 = nn.Sequential(*decoders[10:17])
+        self.dec4 = nn.Sequential(*decoders[17:24])
+        self.dec5 = nn.Sequential(*decoders[24:])
+
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                m.requires_grad = False
+
+        self.enc5 = SegNetEnc(512, 512, 1)
+        self.enc4 = SegNetEnc(1024, 256, 1)
+        self.enc3 = SegNetEnc(512, 128, 1)
+        self.enc2 = SegNetEnc(256, 64, 0)
+        self.enc1 = nn.Sequential(
+            nn.Upsample(scale_factor=2, mode='bilinear'),
+            nn.Conv2d(128, 64, 3, padding=1),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
         )
-        self.dec4 = _DecoderBlock(1024, 256, 4)
-        self.dec3 = _DecoderBlock(512, 128, 4)
-        self.dec2 = _DecoderBlock(256, 64, 2)
-        self.dec1 = _DecoderBlock(128, num_classes, 2)
-        initialize_weights(self.dec5, self.dec4, self.dec3, self.dec2, self.dec1)
+        self.final = nn.Conv2d(64, num_classes, 3, padding=1)
 
     def forward(self, x):
-        enc1 = self.enc1(x)
-        enc2 = self.enc2(enc1)
-        enc3 = self.enc3(enc2)
-        enc4 = self.enc4(enc3)
-        enc5 = self.enc5(enc4)
+        '''
+            Attention, input size should be the 32x.
+        '''
+        dec1 = self.dec1(x)
+        dec2 = self.dec2(dec1)
+        dec3 = self.dec3(dec2)
+        dec4 = self.dec4(dec3)
+        dec5 = self.dec5(dec4)
+        enc5 = self.enc5(dec5)
 
-        dec5 = self.dec5(enc5)
-        dec4 = self.dec4(torch.cat([enc4, dec5], 1))
-        dec3 = self.dec3(torch.cat([enc3, dec4], 1))
-        dec2 = self.dec2(torch.cat([enc2, dec3], 1))
-        dec1 = self.dec1(torch.cat([enc1, dec2], 1))
-        return dec1
+        enc4 = self.enc4(torch.cat([dec4, enc5], 1))
+        enc3 = self.enc3(torch.cat([dec3, enc4], 1))
+        enc2 = self.enc2(torch.cat([dec2, enc3], 1))
+        enc1 = self.enc1(torch.cat([dec1, enc2], 1))
+
+        return F.upsample_bilinear(self.final(enc1), x.size()[2:])
