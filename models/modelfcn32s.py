@@ -2,7 +2,7 @@ import os.path as osp
 
 import fcn
 import torch.nn as nn
-
+import models.modelfcn8s as fcn8s
 
 class FCN32s(nn.Module):
     pretrained_model = \
@@ -83,7 +83,7 @@ class FCN32s(nn.Module):
                     m.bias.data.zero_()
             if isinstance(m, nn.ConvTranspose2d):
                 assert m.kernel_size[0] == m.kernel_size[1]
-                initial_weight = get_upsampling_weight(
+                initial_weight = fcn8s.get_upsampling_weight(
                     m.in_channels, m.out_channels, m.kernel_size[0])
                 m.weight.data.copy_(initial_weight)
 
