@@ -11,8 +11,6 @@ import voc.voc as voc
 import models.modelsegnet as segnet
 import train
 
-from fcn8s import get_parameters
-
 
 here = osp.dirname(osp.abspath(__file__))
 
@@ -84,9 +82,7 @@ def main():
     # 3. optimizer
     optim = torch.optim.SGD(
         [
-            {'params': get_parameters(model, bias=False)},
-            {'params': get_parameters(model, bias=True),
-             'lr': args.lr * 2, 'weight_decay': 0},
+            {'lr': args.lr * 2, 'weight_decay': 0},
         ],
         lr=args.lr,
         momentum=args.momentum,
