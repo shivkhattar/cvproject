@@ -9,8 +9,10 @@ import torch
 import yaml
 import voc.voc as voc
 import models.modelunet as unet
-import train
+import train_unet as train
 from models.new_unet import MyUNet
+from torch import optim as opt
+
 here = osp.dirname(osp.abspath(__file__))
 
 
@@ -36,10 +38,10 @@ def main():
     )
     args = parser.parse_args()
 
-    args.model = 'UNet'
+    args.model = 'MyUNet'
 
     now = datetime.datetime.now()
-    args.out = osp.join(here, 'logs-unet', now.strftime('%Y%m%d_%H%M%S.%f'))
+    args.out = osp.join(here, 'logs-unet2', now.strftime('%Y%m%d_%H%M%S.%f'))
 
     os.makedirs(args.out)
     with open(osp.join(args.out, 'config.yaml'), 'w') as f:
@@ -77,15 +79,16 @@ def main():
         model = model.cuda()
 
     # 3. optimizer
-    optim = torch.optim.SGD([
-        {'params': [param for name, param in model.named_parameters() if name[-4:] == 'bias'],
-         'lr': 2 * args.lr},
-        {'params': [param for name, param in model.named_parameters() if name[-4:] != 'bias'],
-         'lr': args.lr, 'weight_decay': args.weight_decay}
-    ],
-        lr=args.lr,
-        momentum=args.momentum,
-        weight_decay=args.weight_decay)
+    optim = opt.RMSprop(model.parameters(), lr=args.lr, weight_decay=1e-8, momentum=0.9)
+    # optim = torch.optim.SGD([
+    #     {'params': [param for name, param in model.named_parameters() if name[-4:] == 'bias'],
+    #      'lr': 2 * args.lr},
+    #     {'params': [param for name, param in model.named_parameters() if name[-4:] != 'bias'],
+    #      'lr': args.lr, 'weight_decay': args.weight_decay}
+    # ],
+    #     lr=args.lr,
+    #     momentum=args.momentum,
+    #     weight_decay=args.weight_decay)
     if args.resume:
         optim.load_state_dict(checkpoint['optim_state_dict'])
 
